@@ -1,141 +1,212 @@
-# The Rainbow Take-Home Assignment
+# Rainbow - Backend Take-Home Assignment
 
-Please create a __private__ version of this repo, complete the objectives, and once you
-are finished, send a link to your repo to us.
+Please create a private fork of this repo and complete the objectives.
+Once you are finished, send us an email with a link to your private repo.
 
-# The Assignment
 
-Part of what an insurance company needs to have in its backend is a 
-record system. As an insurer, we need to keep an up-to-date record of each of our policy-holder's
-data points that go into the calculation of their rate. When a policy-holder updates
-their information, I.E. they change addresses, or add/remove new employees to their team
-we will be notified and we must keep our records up to date.
+## To Create A Private Fork
 
-The current version of the repo is an extremely simplified version of exactly that. `GET /api/v1/record/{id}`
-will retrieve a record, which is just a json mapping strings to strings. and `POST /api/v1/record/{id}`
-will either create a new record or modify an existing record. However, it isn't enough to
-just keep a record of the current record state but we must maintain a reference to how the state
-has changed to be in full compliance.
+1. Clone the repository to your local machine
+```bash
+git clone git@github.com:rainbowmga/timetravel.git
+cd timetravel
+```
 
-Say that the policy-holder buys their insurance on the start of the year, and then two months later
-changes the address of their business but doesn't tell us about this change until 4 months after that.
-Since we were technically held liable if there was a claim event, we need to charge the customer the
-difference for the 4 months since they changed addresses. To do so accurately, we need to know the
-version of the records that we knew about them at the two points of time: at the time when the change happened
-and at the time when we were told of the change.
+2. Create a new **private** repository on your GitHub account
+- https://github.com/new
 
-In this project, you'll make a simplified version of this system. We've implemented an in-memory key-value store with no history. 
-At a high-level your goal is to do two things to this existing codebase:
+3. Add your new private repo as a remote:
+```bash
+git remote rename origin upstream
+git remote add origin https://github.com/YOUR_USERNAME/NEW_PRIVATE_REPO.git
+```
 
-1. Change the storage backend to sqlite, and persist the data across turning off and on the server.
-2. Add the time travel component so we can easily look up the state of each records at different timesteps.
+4. Push the code to your new private repo:
+```bash
+git push -u origin master
+```
 
-The sections below outline these two objectives in more detail. You may use whatever libraries and tools
-you like to achieve this even as far as building this in an entirely different language.
 
-## Objective: Switch To Sqlite
+## To Run The Server
 
-The current implementation does not store the data. The data is lost once the server 
-process is killed. You should change the code so that all changes are persisted on 
-to sqlite.
+1. Compile and run the Go application:
+```bash
+cd timetravel
+go run .
+```
 
-Once you're done, the data should be persistent on to a sqlite file as the server 
-is running. The server should tolerate restarting the process without data loss.
+2. Test the server using the healthcheck endpoint:
+```bash
+curl -X POST http://localhost:8000/api/v1/health
+```
 
-## Objective: Add Time Travel
-This part is far more open-ended. You might need to make major changes across nearly
-all files of the codebase. You'll be adding persistentence to the records. 
+You should see the following response:
+```json
+{"ok":true}
+```
 
-You should create a set of `/api/v2` endpoints that enable you to do run gets, creates, and updates. 
-Unlike in v1, records are now versioned. Full requirements: 
 
-- You should have endpoints that allow the api client to get records at different versions. (not just 
-the latest version). 
-- You should be able to add modifications on top of the latest version. 
-- There should be a way to get a list of the different versions too.
-- `/api/v1` should still work after these changes with identical behavior as before.
+## The Assignment
 
-# Reccommendations
+A core part of any insurance platform is a reliable and auditable
+record-keeping system. It must store all relevant data used to underwrite
+policies. Policyholders periodically submit and update information about the
+risks they want covered, such as their desired liability limits or changes to
+their workforce. These changes can significantly affect the policy's risk
+profile and, consequently, the premium.
 
-We expect you to work as if this task was a normal project at work. So please write
+The current codebase represents a very simplified version of this system, with:
+- `GET /api/v1/record/{id}` – retrieves a record (a simple JSON mapping of
+strings to strings)
+- `POST /api/v1/record/{id}` – creates or updates a record
+
+### The Problem
+
+Maintaining only the *current* state of each record is not enough. For
+compliance and proper risk assessment, we must also understand how that state
+*evolved*.
+
+Consider the following example. A business buys a policy in January. In March,
+they change their business hours, but they don't notify us until July. During
+that four-month gap, we are unknowingly covering a risk that has changed.
+Depending on the nature of the change, we may need to:
+- **Retroactively adjust the premium**
+- Or even **void the policy** if the change introduces unacceptable risk
+
+To resolve this, we need a versioned, historical view of the data:
+- What did we know and when?
+- When did the change actually occur?
+
+### Objective 1: Persist Data with SQLite
+
+Replace the in-memory storage backend with a persistent SQLite database. The
+goal is to ensure that all record data is retained even if the server is shut
+down and restarted.
+
+### Objective 2: Implement Time Travel Functionality
+
+Introduce a “time travel” feature that allows querying the state of any record
+at a specific point in time. This enables accurate reconstructions for
+compliance, audits, and risk recalculations.
+
+This objective is open-ended and may require significant changes across the
+codebase. You'll introduce **record versioning and history tracking**.
+
+Build out a new set of endpoints under `/api/v2` with the following
+functionality:
+- Retrieve records at specific versions (not just the latest)
+- Apply updates to the latest version while preserving history
+- List all available versions of a record
+- Ensure full backward compatibility: `/api/v1` endpoints should continue to
+work as-is, with no changes in behavior
+
+
+## Notes on the Assignment
+
+You are free to use any tools, libraries, or frameworks you prefer — even building
+the solution in a different programming language if desired.
+
+We expect you to work on this task as if it was a normal project at work. So please write
 your code in a way that fits your intuitive notion of operating within best practices.
-Additionally, you should at the very least have a different commmit for each individual objective, 
-ideally more as you go through process of completing the take-home. Also we like
-to see your thought process and fixes as you make changes. So don't be afraid of
-committing code that you later edit. No need to squash those commits.
 
-Many parts of the assignment is intentionally ambiguious. If you have a question, definitely
-reach out. But for many of these ambiguiuties, we want to see how you independently make
-software design decisions.
+We recommend making separate commits for each objective to help illustrate how you approached
+and broke down the assignment.  Don't hesitate to commit work that you later revise or remove
+— it's valuable to see your process evolve over time.
 
-# FAQ
-_Can I Use Another Language?_
-Definitely, we've had multiple people complete this assignment in Python and Java. You can pick whatever
-language you'd like although you should aim to replicate the functionality in the boilerplate. 
+Parts of this assignment are left intentionally ambiguous. How you resolve these
+ambiguities will help us understand your decision-making process.
 
-_Did you really end up implementing something like this at Rainbow?_
-Yes, but unfortunately it wasn't as simple as this in practice. For insurance a number of requirements force us 
-to maintain historic records across many different object types. So in fact we implemented this across multiple different 
+However, if you do have questions, don't hesitate to reach out!
+
+### FAQ
+
+#### Can I use a different language?
+Yes! We've had successful submissions in Python, Java, and others. Just make sure the
+functionality replicates what's provided in the Go starter code.
+
+#### Did you really end up implementing something like this at Rainbow?
+Yes, but unfortunately it wasn't as simple as this in practice. For insurance a
+number of requirements force us to maintain historic records across many
+different object types. So in fact we implemented this across multiple different
 tables in our database. 
 
 
-# Reference -- The Current API
+## Reference -- The Current API
 
-There are only two API endpoints `GET /api/v1/records/{id}` and `POST /api/v1/records/{id}`, all ids must be positive integers.
+The current API consists of just two endpoints:
+- `GET /api/v1/records/{id}`
+- `POST /api/v1/records/{id}`,
+
+All ids must be **positive integers**.
 
 ### `GET /api/v1/records/{id}`
 
-This endpoint will return the record if it exists.
+Retrieves a record by its ID. If the record exists, the server returns it in
+JSON format. If the record does not exist, an error message is returned.
 
+✅ Successful Response Example
 ```bash
 > GET /api/v1/records/2323 HTTP/1.1
 
 < HTTP/1.1 200 OK
 < Content-Type: application/json; charset=utf-8
-{"id":2323,"data":{"david":"hey","davidx":"hey"}}
+
+{"id": 2323, "data": {"david": "hey", "davidx": "hey"}}
 ```
 
+❌ Error Response Example
 ```bash
 > GET /api/v1/records/32 HTTP/1.1
 
 < HTTP/1.1 400 Bad Request
 < Content-Type: application/json; charset=utf-8
-{"error":"record of id 32 does not exist"}
+
+{"error": "record of id 32 does not exist"}
 ```
 
 ### `POST /api/v1/records/{id}`
 
-This endpoint will create a record if a does not exists.
-Otherwise it will update the record.
+Creates or updates a record at the specified ID.
+- If the record does not exist, it will be created.
+- If the record already exists, it will be updated.
+- Payload values must be a JSON object with string keys and values (or `null`).
+- Keys with `null` values will be deleted from the record.
 
-The payload is a json object mapping strings to strings
-and nulls. Values that are null indicate that the
-backend must delete that key of the record.
-
+✅ Create a Record
 ```bash
-# Creating a record
 > POST /api/v1/records/1 HTTP/1.1
-{"hello":"world"}
+> Content-Type: application/json
+
+{"hello": "world"}
 
 < HTTP/1.1 200 OK
 < Content-Type: application/json; charset=utf-8
-{"id":1,"data":{"hello":"world"}}
 
+{"id": 1, "data": {"hello": "world"}}
+```
 
-# Updating that record
+🔁 Update a Record
+```bash
 > POST /api/v1/records/1 HTTP/1.1
-{"hello":"world 2","status":"ok"}
+> Content-Type: application/json
+
+{"hello": "world 2", "status": "ok"}
 
 < HTTP/1.1 200 OK
 < Content-Type: application/json; charset=utf-8
-{"id":1,"data":{"hello":"world 2","status":"ok"}}
 
+{"id": 1, "data": {"hello": "world 2", "status": "ok"}}
+```
 
-# Deleting a field
+❌ Delete a field from a record
+```bash
 > POST /api/v1/records/1 HTTP/1.1
-{"hello":null}
+> Content-Type: application/json
+
+{"hello": null}
 
 < HTTP/1.1 200 OK
 < Content-Type: application/json; charset=utf-8
-{"id":1,"data":{"status":"ok"}}
+
+{"id": 1, "data": {"status": "ok"}}
 ```
