@@ -18,3 +18,9 @@ func (d *Record) Copy() Record {
 		Data: newMap,
 	}
 }
+
+type RecordV2 struct {
+	ID      int                 `json:id`
+	Version int                 `json:version`
+	Data     map[string]string  `json:data`
+}
