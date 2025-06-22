@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 	"errors"
-
 	"github.com/rainbowmga/timetravel/entity"
+	"database/sql"
 )
 
 var ErrRecordDoesNotExist = errors.New("record with that id does not exist")
@@ -28,6 +28,27 @@ type RecordService interface {
 	// UpdateRecord will error if id <= 0 or the record does not exist with that id.
 	UpdateRecord(ctx context.Context, id int, updates map[string]*string) (entity.Record, error)
 }
+
+type DBRecordService struct {
+	db *sql.DB
+}
+
+func NewDBRecordService(dbConn *sql.DB) DBRecordService {
+	return DBRecordService{	db: dbConn }
+}
+
+func (s *DBRecordService) GetRecord(ctx context.Context, id int) (entity.Record, error){
+	return entity.Record{}, ErrRecordDoesNotExist
+}
+
+func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record) error {
+	return nil
+}
+
+func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updates map[string]*string) (entity.Record, error) {
+	return entity.Record{}, nil
+}
+
 
 // InMemoryRecordService is an in-memory implementation of RecordService.
 type InMemoryRecordService struct {
