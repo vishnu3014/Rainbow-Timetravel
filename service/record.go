@@ -30,6 +30,9 @@ type RecordService interface {
 	//
 	// UpdateRecord will error if id <= 0 or the record does not exist with that id.
 	UpdateRecord(ctx context.Context, id int, updates map[string]*string) (entity.Record, error)
+	
+	//Get Version will get all the version of a record and it's created timestamp.
+	GetVersions(ctx context.Context, id int) (map[int]int, error)
 }
 
 type DBRecordService struct {
@@ -151,6 +154,32 @@ func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updates map[
 	log.Println("The update to the record with id: ", id, " is successfully completed.")
 	return record.Copy(), nil	
 }
+
+func (s *DBRecordService) GetVersions(ctx context.Context, id int) (map[int]int, error) {
+
+	versionsMap := map[int]int{}
+
+	query := "select version, created_at from record_versions where record_id = ? order by version asc"
+	rows, err := s.db.Query(query, id)
+	if err != nil {
+		log.Println("There was an error when quering the versions. Error: ", err)
+		return versionsMap, err 
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+
+		var version int
+		var created_at int
+		
+		rows.Scan(&version, &created_at)
+		versionsMap[version] = created_at
+	}
+
+	return versionsMap, nil
+}
+
 
 // InMemoryRecordService is an in-memory implementation of RecordService.
 type InMemoryRecordService struct {

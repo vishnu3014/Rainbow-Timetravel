@@ -47,7 +47,8 @@ func main() {
 	api.CreateRoutes(apiRoute)
 
 
-	// apiRouteV2 := router.PathPrefix("/api/v2").Subrouter()
+	apiRouteV2 := router.PathPrefix("/api/v2").Subrouter()
+	api.CreateRoutesV2(apiRouteV2)
 	
 
 	address := "127.0.0.1:8000"
