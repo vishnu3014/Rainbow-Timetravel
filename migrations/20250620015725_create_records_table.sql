@@ -1,8 +1,8 @@
 -- +goose Up
 -- +goose StatementBegin
 CREATE TABLE records (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
-       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+       id INTEGER PRIMARY KEY,
+       created_at INTEGER NOT NULL
 );
 -- +goose StatementEnd
 
