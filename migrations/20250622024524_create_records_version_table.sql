@@ -2,14 +2,17 @@
 -- +goose StatementBegin
 create table record_versions (
 id integer primary key autoincrement,
-version integer not null,
-attributes_payload text not null default '{}' check(json_valid(attributes_payload)),
 attributes text not null default '{}' check(json_valid(attributes)),
-attributes_updated_at integer not null,
+actual_update_timestamp integer not null,
 record_id integer not null,
 created_at integer not null,
 foreign key(record_id) references records(id)
 );
+
+create index idx_record_versions_timestamp on record_versions(actual_update_timestamp);
+
+create index idx_record_versions_record_id on record_versions(record_id);
+
 -- +goose StatementEnd
 
 -- +goose Down

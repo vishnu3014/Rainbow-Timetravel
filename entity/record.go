@@ -19,8 +19,10 @@ func (d *Record) Copy() Record {
 	}
 }
 
-type RecordV2 struct {
-	ID      int                 `json:id`
-	Version int                 `json:version`
-	Data     map[string]string  `json:data`
+type VersionedRecord struct {
+	ID                     int                 `json:id`
+	Version                int                 `json:version`
+	ActualUpdatedTimestamp int                 `json:actualUpdatedTimestamp`
+	ReportedTimestamp      int                 `json:reportedTimestamp`
+	Data                   map[string]string   `json:data`
 }

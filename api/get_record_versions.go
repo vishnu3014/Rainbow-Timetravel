@@ -18,13 +18,13 @@ func (a *API) GetRecordVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	versions, err := a.records.GetVersions(ctx, int(idNumber))
+	versionedRecords, err := a.records.GetVersions(ctx, int(idNumber))
 	if err != nil {
 		logError(err)
 		return
 	}
 	
-	err = writeJSON(w, versions, http.StatusOK)
+	err = writeJSON(w, versionedRecords, http.StatusOK)
 	logError(err)
 	return
 }
