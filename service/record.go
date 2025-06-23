@@ -23,7 +23,7 @@ type RecordService interface {
 	// CreateRecord will insert a new record.
 	//
 	// If it a record with that id already exists it will fail.
-	CreateRecord(ctx context.Context, record entity.Record) error
+	CreateRecord(ctx context.Context, record entity.Record) (entity.Record, error)
 
 	// UpdateRecord will change the internal `Map` values of the record if they exist.
 	// if the update[key] is null it will delete that key from the record's Map.
@@ -32,10 +32,10 @@ type RecordService interface {
 	UpdateRecord(ctx context.Context, id int, updates map[string]*string) (entity.Record, error)
 	
 	// GetVersions will get all the version of a record and it's corresponding created timestamp.
-	GetVersions(ctx context.Context, id int) ([]entity.VersionedRecord, error)
+	GetVersions(ctx context.Context, id int) ([]entity.Record, error)
 
 	// GetRecord will get a record with a specific version
-	GetVersionedRecord(ctx context.Context, id int, version int) (entity.VersionedRecord, error)
+	GetVersionedRecord(ctx context.Context, id int, version int) (entity.Record, error)
 }
 
 type DBRecordService struct {
@@ -50,14 +50,28 @@ func (s *DBRecordService) GetRecord(ctx context.Context, id int) (entity.Record,
 
 	log.Println("Quering the DB to retrieve record with id: ", id)
 
-	query := "select attributes from record_versions where record_id = ? order by actual_update_timestamp desc limit 1"
+	// Get the attributes of the record
+	query := "select attributes, actual_update_timestamp, created_at from record_versions where record_id = ? order by actual_update_timestamp desc limit 1"
 	
 	row := s.db.QueryRow(query, id, id)
 
 	var attributesStr string
-	err := row.Scan(&attributesStr)
+	var updatedTimestamp int64
+	var createdAt int64
+	err := row.Scan(&attributesStr, &updatedTimestamp, &createdAt)
 	if err != nil {
 		log.Println("The query failed on execution for id: ", id, " error: ", err)
+		return entity.Record{}, ErrRecordDoesNotExist
+	}
+
+	// Infer the version number of the record.
+	query = "select count(*) from record_versions where record_id = ? and actual_update_timestamp < ?"
+
+	row = s.db.QueryRow(query, id, updatedTimestamp)
+
+	var version int
+	err = row.Scan(&version)
+	if err != nil {
 		return entity.Record{}, ErrRecordDoesNotExist
 	}
 
@@ -70,11 +84,11 @@ func (s *DBRecordService) GetRecord(ctx context.Context, id int) (entity.Record,
 	}
 
 	log.Println("The query to the DB completed successfully for the record with id: ", id)
-	record := entity.Record{ ID: id, Data: attributesMap }
+	record := entity.Record{ ID: id, Data: attributesMap, Version: version+1, UpdatedTimestamp: updatedTimestamp, ReportedTimestamp: createdAt}
 	return record, nil
 }
 
-func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record) error {
+func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record) (entity.Record, error) {
 	log.Println("Checking if a record with exists with id: ", record.ID)
 	
 	query := `select count(*) from records where id = ?`
@@ -83,12 +97,12 @@ func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record
 	count := 0
 	err := row.Scan(&count)
 	if err != nil {
-		return err
+		return entity.Record{}, err
 	}
 
 	if count != 0 {
 		log.Println("Record exists with the ID:", record.ID, " exists in the DB. Please enter a valid ID.")
-		return ErrRecordAlreadyExists
+		return entity.Record{}, ErrRecordAlreadyExists
 	}
 
 	// TODO: Add a transaction here !
@@ -97,22 +111,32 @@ func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record
 	stmt := "insert into records (id, created_at) values (?, ?)"
 	_, err = s.db.Exec(stmt, record.ID, time.Now().Unix())
 	if err != nil {
-		return err
+		return entity.Record{}, err
 	}
 
 	jsonData, err := json.Marshal(record.Data)
 	if err != nil {
-		return err
+		return entity.Record{}, err
 	}
 
 	stmt = "insert into record_versions(attributes, actual_update_timestamp, record_id, created_at) values (?, ?, ?, ?)"
-	_, err = s.db.Exec(stmt, jsonData, time.Now().Unix(), record.ID, time.Now().Unix())
+	updatedTimestamp := time.Now().Unix()
+	createdTimestamp := time.Now().Unix()
+	_, err = s.db.Exec(stmt, jsonData, updatedTimestamp, record.ID, createdTimestamp)
 	if err != nil {
-		return err
+		return entity.Record{}, err
 	}
 
+	recordInDB := entity.Record{
+		    ID: record.ID,
+		    Version: 1,
+		    UpdatedTimestamp: updatedTimestamp,
+		    ReportedTimestamp: createdTimestamp,
+		    Data: record.Data,
+	}
+	
 	log.Println("Successfully added a record to the datbase with ID: ", record.ID)
-	return nil
+	return recordInDB, nil
 }
 
 func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updates map[string]*string) (entity.Record, error) {
@@ -141,68 +165,71 @@ func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updates map[
 	}
 
 	log.Println("The update to the record with id: ", id, " is successfully completed.")
+	record.Version = record.Version + 1
 	return record.Copy(), nil	
 }
 
 // TODO: When the record is not found, return the appropriate error.
-func (s *DBRecordService) GetVersions(ctx context.Context, id int) ([]entity.VersionedRecord, error) {
+func (s *DBRecordService) GetVersions(ctx context.Context, id int) ([]entity.Record, error) {
 
-	var versionedRecords []entity.VersionedRecord
+	var records []entity.Record
 
 	_, err := s.GetRecord(ctx, id)
 	if err != nil {
 		log.Println("The record with id: ", id, " could not be found.")
-		return versionedRecords, err
+		return records, err
 	}
 	
-	query := "select id, attributes, actual_update_timestamp, created_at from record_versions where record_id = ? order by actual_update_timestamp asc"
+	query := "select attributes, actual_update_timestamp, created_at from record_versions where record_id = ? order by actual_update_timestamp asc"
 	rows, err := s.db.Query(query, id)
 	if err != nil {
 		log.Println("There was an error when quering the versions. Error: ", err)
-		return versionedRecords, err 
+		return records, err 
 	}
 
 	defer rows.Close()
 
 	version := 1
 	for rows.Next() {
-		var versionedRecord entity.VersionedRecord
+		var record entity.Record
 		var attributesStr string
 		
-		rows.Scan(&versionedRecord.ID, &attributesStr, &versionedRecord.ActualUpdatedTimestamp, &versionedRecord.ReportedTimestamp)
+		rows.Scan(&attributesStr, &record.UpdatedTimestamp, &record.ReportedTimestamp)
 
 		jsonData := []byte(attributesStr)
-		json.Unmarshal(jsonData, &versionedRecord.Data)
+		json.Unmarshal(jsonData, &record.Data)
 
-		versionedRecord.Version = version
+		record.ID = id
+		
+		record.Version = version
 		version = version + 1
 		
-		versionedRecords = append(versionedRecords, versionedRecord)
+		records = append(records, record)
 	}
 
-	return versionedRecords, nil
+	return records, nil
 }
 
-func (s *DBRecordService) GetVersionedRecord(ctx context.Context, id int, version int) (entity.VersionedRecord, error) {
+func (s *DBRecordService) GetVersionedRecord(ctx context.Context, id int, version int) (entity.Record, error) {
 
-	var versionedRecord entity.VersionedRecord
+	var record entity.Record
 
 	query := "select id, attributes, actual_update_timestamp, created_at from record_versions where record_id = ? order by actual_update_timestamp asc limit 1 offset ?"
 
 	row := s.db.QueryRow(query, id, version-1)
 		
 	var attributesStr string
-	err := row.Scan(&versionedRecord.ID, &attributesStr, &versionedRecord.ActualUpdatedTimestamp, &versionedRecord.ReportedTimestamp)
+	err := row.Scan(&record.ID, &attributesStr, &record.UpdatedTimestamp, &record.ReportedTimestamp)
 	if err != nil {
-		return versionedRecord, err
+		return record, err
 	}
 
 	jsonData :=[]byte(attributesStr)
-	json.Unmarshal(jsonData, &versionedRecord.Data)
+	json.Unmarshal(jsonData, &record.Data)
 
-	versionedRecord.Version = version
+	record.Version = version
 
-	return versionedRecord, nil
+	return record, nil
 }
 
 

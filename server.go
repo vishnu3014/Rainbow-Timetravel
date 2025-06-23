@@ -35,7 +35,6 @@ func main() {
 	
 	router := mux.NewRouter()
 
-	//service := service.NewInMemoryRecordService()
 	service := service.NewDBRecordService(db)
 	api := api.NewAPI(&service)
 
@@ -45,7 +44,6 @@ func main() {
 		logError(err)
 	})
 	api.CreateRoutes(apiRoute)
-
 
 	apiRouteV2 := router.PathPrefix("/api/v2").Subrouter()
 	api.CreateRoutesV2(apiRouteV2)

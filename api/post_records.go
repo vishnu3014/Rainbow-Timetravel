@@ -9,6 +9,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rainbowmga/timetravel/entity"
 	"github.com/rainbowmga/timetravel/service"
+	"time"
+	"context"
 )
 
 // POST /records/{id}
@@ -34,31 +36,7 @@ func (a *API) PostRecords(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// first retrieve the record
-	record, err := a.records.GetRecord(
-		ctx,
-		int(idNumber),
-	)
-
-	if !errors.Is(err, service.ErrRecordDoesNotExist) { // record exists
-		record, err = a.records.UpdateRecord(ctx, int(idNumber), body)
-	} else { // record does not exist
-
-		// exclude the delete updates
-		recordMap := map[string]string{}
-		for key, value := range body {
-			if value != nil {
-				recordMap[key] = *value
-			}
-		}
-
-		record = entity.Record{
-			ID:   int(idNumber),
-			Data: recordMap,
-		}
-		err = a.records.CreateRecord(ctx, record)
-	}
-
+	record, err := a.ProcessInput(ctx, int(idNumber), time.Now().Unix(), body)
 	if err != nil {
 		errInWriting := writeError(w, ErrInternal.Error(), http.StatusInternalServerError)
 		logError(err)
@@ -68,4 +46,36 @@ func (a *API) PostRecords(w http.ResponseWriter, r *http.Request) {
 
 	err = writeJSON(w, record, http.StatusOK)
 	logError(err)
+}
+
+func (a *API) ProcessInput(ctx context.Context, recordId int, updatedTimestamp int64, body map[string]*string) (entity.Record, error) {
+
+	// Check for the existence of the record
+	record, err := a.records.GetRecord(ctx, recordId)
+
+	// record exists
+	if !errors.Is(err, service.ErrRecordDoesNotExist) {
+
+		record, err = a.records.UpdateRecord(ctx, recordId, body)
+
+	} else { // record does not exist
+
+		recordMap := map[string]string{}
+		for key, value := range body {
+			if value != nil {
+				recordMap[key] = *value
+			}
+		}
+
+		record = entity.Record{
+			ID:  recordId,
+			Version: 1,
+			UpdatedTimestamp: updatedTimestamp,
+			ReportedTimestamp: 0,
+			Data: recordMap,
+		}
+		record, err = a.records.CreateRecord(ctx, record)
+	}
+
+	return record, err
 }
