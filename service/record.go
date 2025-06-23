@@ -214,12 +214,12 @@ func (s *DBRecordService) GetVersionedRecord(ctx context.Context, id int, versio
 
 	var record entity.Record
 
-	query := "select id, attributes, actual_update_timestamp, created_at from record_versions where record_id = ? order by actual_update_timestamp asc limit 1 offset ?"
+	query := "select attributes, actual_update_timestamp, created_at from record_versions where record_id = ? order by actual_update_timestamp asc limit 1 offset ?"
 
 	row := s.db.QueryRow(query, id, version-1)
 		
 	var attributesStr string
-	err := row.Scan(&record.ID, &attributesStr, &record.UpdatedTimestamp, &record.ReportedTimestamp)
+	err := row.Scan(&attributesStr, &record.UpdatedTimestamp, &record.ReportedTimestamp)
 	if err != nil {
 		return record, err
 	}
@@ -227,6 +227,8 @@ func (s *DBRecordService) GetVersionedRecord(ctx context.Context, id int, versio
 	jsonData :=[]byte(attributesStr)
 	json.Unmarshal(jsonData, &record.Data)
 
+	record.ID = id
+	
 	record.Version = version
 
 	return record, nil
