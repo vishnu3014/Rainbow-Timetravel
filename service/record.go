@@ -35,6 +35,7 @@ type RecordService interface {
 	GetVersions(ctx context.Context, id int) ([]entity.VersionedRecord, error)
 
 	// GetRecord will get a record with a specific version
+	GetVersionedRecord(ctx context.Context, id int, version int) (entity.VersionedRecord, error)
 }
 
 type DBRecordService struct {
@@ -143,9 +144,16 @@ func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updates map[
 	return record.Copy(), nil	
 }
 
+// TODO: When the record is not found, return the appropriate error.
 func (s *DBRecordService) GetVersions(ctx context.Context, id int) ([]entity.VersionedRecord, error) {
 
 	var versionedRecords []entity.VersionedRecord
+
+	_, err := s.GetRecord(ctx, id)
+	if err != nil {
+		log.Println("The record with id: ", id, " could not be found.")
+		return versionedRecords, err
+	}
 	
 	query := "select id, attributes, actual_update_timestamp, created_at from record_versions where record_id = ? order by actual_update_timestamp asc"
 	rows, err := s.db.Query(query, id)
@@ -173,6 +181,28 @@ func (s *DBRecordService) GetVersions(ctx context.Context, id int) ([]entity.Ver
 	}
 
 	return versionedRecords, nil
+}
+
+func (s *DBRecordService) GetVersionedRecord(ctx context.Context, id int, version int) (entity.VersionedRecord, error) {
+
+	var versionedRecord entity.VersionedRecord
+
+	query := "select id, attributes, actual_update_timestamp, created_at from record_versions where record_id = ? order by actual_update_timestamp asc limit 1 offset ?"
+
+	row := s.db.QueryRow(query, id, version-1)
+		
+	var attributesStr string
+	err := row.Scan(&versionedRecord.ID, &attributesStr, &versionedRecord.ActualUpdatedTimestamp, &versionedRecord.ReportedTimestamp)
+	if err != nil {
+		return versionedRecord, err
+	}
+
+	jsonData :=[]byte(attributesStr)
+	json.Unmarshal(jsonData, &versionedRecord.Data)
+
+	versionedRecord.Version = version
+
+	return versionedRecord, nil
 }
 
 
