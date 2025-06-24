@@ -285,7 +285,6 @@ func (s *DBRecordService) UpdateAllRecords(tx *sql.Tx, id int, updatedTimestamp 
 	return nil
 }
 
-// TODO: When the record is not found, return the appropriate error.
 func (s *DBRecordService) GetVersions(ctx context.Context, id int) ([]entity.Record, error) {
 
 	var records []entity.Record
