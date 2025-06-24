@@ -29,7 +29,7 @@ type RecordService interface {
 	// if the update[key] is null it will delete that key from the record's Map.
 	//
 	// UpdateRecord will error if id <= 0 or the record does not exist with that id.
-	UpdateRecord(ctx context.Context, id int, updates map[string]*string) (entity.Record, error)
+	UpdateRecord(ctx context.Context, id int, updatedTimestamp int64, updates map[string]*string) (entity.Record, error)
 	
 	// GetVersions will get all the version of a record and it's corresponding created timestamp.
 	GetVersions(ctx context.Context, id int) ([]entity.Record, error)
@@ -53,7 +53,24 @@ func (s *DBRecordService) GetRecord(ctx context.Context, id int) (entity.Record,
 	// Get the attributes of the record
 	query := "select attributes, actual_update_timestamp, created_at from record_versions where record_id = ? order by actual_update_timestamp desc limit 1"
 	
-	row := s.db.QueryRow(query, id, id)
+	row := s.db.QueryRow(query, id)
+	
+	return s.GetRecordDetails(id, row)
+}
+
+func (s *DBRecordService) GetRecordAt(ctx context.Context, id int, queryTimestamp int64) (entity.Record, error){
+
+	log.Println("Quering the DB to retrieve record with id: ", id)
+
+	// Get the attributes of the record
+	query := "select attributes, actual_update_timestamp, created_at from record_versions where record_id = ? and actual_update_timestamp < ? order by actual_update_timestamp desc limit 1"
+	
+	row := s.db.QueryRow(query, id, queryTimestamp)
+	return s.GetRecordDetails(id, row)
+}
+
+
+func (s *DBRecordService) GetRecordDetails(id int, row *sql.Row) (entity.Record, error){
 
 	var attributesStr string
 	var updatedTimestamp int64
@@ -65,7 +82,7 @@ func (s *DBRecordService) GetRecord(ctx context.Context, id int) (entity.Record,
 	}
 
 	// Infer the version number of the record.
-	query = "select count(*) from record_versions where record_id = ? and actual_update_timestamp < ?"
+	query := "select count(*) from record_versions where record_id = ? and actual_update_timestamp < ?"
 
 	row = s.db.QueryRow(query, id, updatedTimestamp)
 
@@ -86,6 +103,7 @@ func (s *DBRecordService) GetRecord(ctx context.Context, id int) (entity.Record,
 	log.Println("The query to the DB completed successfully for the record with id: ", id)
 	record := entity.Record{ ID: id, Data: attributesMap, Version: version+1, UpdatedTimestamp: updatedTimestamp, ReportedTimestamp: createdAt}
 	return record, nil
+
 }
 
 func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record) (entity.Record, error) {
@@ -120,9 +138,9 @@ func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record
 	}
 
 	stmt = "insert into record_versions(attributes, actual_update_timestamp, record_id, created_at) values (?, ?, ?, ?)"
-	updatedTimestamp := time.Now().Unix()
+
 	createdTimestamp := time.Now().Unix()
-	_, err = s.db.Exec(stmt, jsonData, updatedTimestamp, record.ID, createdTimestamp)
+	_, err = s.db.Exec(stmt, jsonData, record.UpdatedTimestamp, record.ID, createdTimestamp)
 	if err != nil {
 		return entity.Record{}, err
 	}
@@ -130,7 +148,7 @@ func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record
 	recordInDB := entity.Record{
 		    ID: record.ID,
 		    Version: 1,
-		    UpdatedTimestamp: updatedTimestamp,
+		    UpdatedTimestamp: record.UpdatedTimestamp,
 		    ReportedTimestamp: createdTimestamp,
 		    Data: record.Data,
 	}
@@ -139,11 +157,16 @@ func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record
 	return recordInDB, nil
 }
 
-func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updates map[string]*string) (entity.Record, error) {
+func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updatedTimestamp int64, updates map[string]*string) (entity.Record, error) {
 	log.Println("Updating record with id: ", id, " in the database.")
 
-	// TODO: Pass the record from the callee
-	record, _ := s.GetRecord(ctx, id)
+	// Get the record at the updatedTimestamp.
+	// For the v1 endpoints, this value from the callee is time.Now().Unix(): This ensures that all
+	// the calls chronologically ascending.
+	// For V2 endpoints, the updatedTimestamp represents the actual date of attribute update.
+	record := entity.Record{}
+	record, _ = s.GetRecordAt(ctx, id, updatedTimestamp)
+
 	for key, value := range updates {
 		if value == nil {
 			delete(record.Data, key)
@@ -158,15 +181,92 @@ func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updates map[
 	}
 
 	stmt := "insert into record_versions(attributes, actual_update_timestamp, record_id, created_at) values (?, ?, ?, ?)"
-	_, err = s.db.Exec(stmt, jsonData, time.Now().Unix(), id, time.Now().Unix())
+	_, err = s.db.Exec(stmt, jsonData, updatedTimestamp, id, time.Now().Unix())
 
 	if err != nil {
 		return entity.Record{}, err
 	}
 
+	err = s.UpdateAllRecords(id, updatedTimestamp, updates)
+	if err != nil {
+		return entity.Record{}, err
+	}
+	
+	
 	log.Println("The update to the record with id: ", id, " is successfully completed.")
-	record.Version = record.Version + 1
+	record.UpdatedTimestamp = updatedTimestamp
+
+	query := "select count(*) from record_versions where record_id = ? and actual_update_timestamp < ?"
+	row := s.db.QueryRow(query, id, updatedTimestamp)
+
+	var version int
+	err = row.Scan(&version)
+	
+	record.Version = version + 1
 	return record.Copy(), nil	
+}
+
+type RecordUpdates struct {
+	Id       int
+	Updates  map[string]string
+}
+
+func (s *DBRecordService) UpdateAllRecords(id int, updatedTimestamp int64, updates map[string]*string) error {
+
+	// Get the attributes of the record
+	query := "select id, attributes from record_versions where record_id = ? and actual_update_timestamp > ?"
+	
+	rows, err := s.db.Query(query, id, updatedTimestamp)
+	if err != nil {
+		return err
+	}
+
+	defer rows.Close()
+
+
+	var updatesToPerform []RecordUpdates
+	// Update all the records with the attribute updates that are made after the updatedTimestamp.
+	for rows.Next() {
+
+		var recordVersionId int
+		var attributesStr string
+		attributes := map[string]string{}
+
+		rows.Scan(&recordVersionId, &attributesStr)
+
+		jsonData := []byte(attributesStr)
+		json.Unmarshal(jsonData, &attributes)
+
+		for key, value := range updates {
+
+			if value == nil {
+				delete(attributes, key)
+			} else {
+				attributes[key] = *value
+			}
+		}
+
+		updatedRecord := RecordUpdates { Id: recordVersionId, Updates: attributes }
+		updatesToPerform = append(updatesToPerform, updatedRecord)
+	}
+
+
+	stmt := "update record_versions set attributes = ? where id = ?"
+	for _, updatedRecord := range updatesToPerform {
+
+		updatedJsonData, err := json.Marshal(updatedRecord.Updates)
+		if err != nil {
+			return err
+		}
+
+		_, err = s.db.Exec(stmt, updatedJsonData, updatedRecord.Id)
+		if err != nil {
+			return err
+		}
+		
+	}
+	
+	return nil
 }
 
 // TODO: When the record is not found, return the appropriate error.
@@ -232,58 +332,4 @@ func (s *DBRecordService) GetVersionedRecord(ctx context.Context, id int, versio
 	record.Version = version
 
 	return record, nil
-}
-
-
-// InMemoryRecordService is an in-memory implementation of RecordService.
-type InMemoryRecordService struct {
-	data map[int]entity.Record
-}
-
-func NewInMemoryRecordService() InMemoryRecordService {
-	return InMemoryRecordService{
-		data: map[int]entity.Record{},
-	}
-}
-
-func (s *InMemoryRecordService) GetRecord(ctx context.Context, id int) (entity.Record, error) {
-	record := s.data[id]
-	if record.ID == 0 {
-		return entity.Record{}, ErrRecordDoesNotExist
-	}
-
-	record = record.Copy() // copy is necessary so modifations to the record don't change the stored record
-	return record, nil
-}
-
-func (s *InMemoryRecordService) CreateRecord(ctx context.Context, record entity.Record) error {
-	id := record.ID
-	if id <= 0 {
-		return ErrRecordIDInvalid
-	}
-
-	existingRecord := s.data[id]
-	if existingRecord.ID != 0 {
-		return ErrRecordAlreadyExists
-	}
-
-	s.data[id] = record
-	return nil
-}
-
-func (s *InMemoryRecordService) UpdateRecord(ctx context.Context, id int, updates map[string]*string) (entity.Record, error) {
-	entry := s.data[id]
-	if entry.ID == 0 {
-		return entity.Record{}, ErrRecordDoesNotExist
-	}
-
-	for key, value := range updates {
-		if value == nil { // deletion update
-			delete(entry.Data, key)
-		} else {
-			entry.Data[key] = *value
-		}
-	}
-
-	return entry.Copy(), nil
 }

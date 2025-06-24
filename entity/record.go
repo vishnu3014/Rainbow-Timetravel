@@ -8,6 +8,11 @@ type Record struct {
 	Data                   map[string]string   `json:data`
 }
 
+type RecordV1 struct {
+	ID   int
+	Data map[string]string
+}
+
 func (d *Record) Copy() Record {
 	values := d.Data
 
@@ -22,6 +27,11 @@ func (d *Record) Copy() Record {
 		UpdatedTimestamp: d.UpdatedTimestamp,
 		ReportedTimestamp: d.ReportedTimestamp,
 		Data: newMap,
-	}
-			
+	}			
+}
+
+func (d *Record) GetRecordV1() RecordV1 {
+
+	record := RecordV1 {ID: d.ID, Data: d.Data}
+	return record
 }

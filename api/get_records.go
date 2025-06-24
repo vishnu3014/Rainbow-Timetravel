@@ -31,6 +31,9 @@ func (a *API) GetRecords(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = writeJSON(w, record, http.StatusOK)
+	// Transform the Record to the signature of Record in V1
+	recordToReturn := record.GetRecordV1()
+
+	err = writeJSON(w, recordToReturn, http.StatusOK)
 	logError(err)
 }
