@@ -123,11 +123,16 @@ func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record
 		return entity.Record{}, ErrRecordAlreadyExists
 	}
 
-	// TODO: Add a transaction here !
-	
+	// Insert the row into Record and RecordVersion table in a trasaction.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return entity.Record{}, ErrRecordAlreadyExists
+	}
+	defer tx.Rollback()
+
 	// If the record does not exist, add a record to the db.
 	stmt := "insert into records (id, created_at) values (?, ?)"
-	_, err = s.db.Exec(stmt, record.ID, time.Now().Unix())
+	_, err = tx.Exec(stmt, record.ID, time.Now().Unix())
 	if err != nil {
 		return entity.Record{}, err
 	}
@@ -140,10 +145,13 @@ func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record
 	stmt = "insert into record_versions(attributes, actual_update_timestamp, record_id, created_at) values (?, ?, ?, ?)"
 
 	createdTimestamp := time.Now().Unix()
-	_, err = s.db.Exec(stmt, jsonData, record.UpdatedTimestamp, record.ID, createdTimestamp)
+	_, err = tx.Exec(stmt, jsonData, record.UpdatedTimestamp, record.ID, createdTimestamp)
 	if err != nil {
 		return entity.Record{}, err
 	}
+
+	// Complete the transaction
+	tx.Commit()
 
 	recordInDB := entity.Record{
 		    ID: record.ID,
@@ -180,18 +188,26 @@ func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updatedTimes
 		return entity.Record{}, err
 	}
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		return entity.Record{}, err
+	}
+	defer tx.Rollback()
+
 	stmt := "insert into record_versions(attributes, actual_update_timestamp, record_id, created_at) values (?, ?, ?, ?)"
-	_, err = s.db.Exec(stmt, jsonData, updatedTimestamp, id, time.Now().Unix())
+	_, err = tx.Exec(stmt, jsonData, updatedTimestamp, id, time.Now().Unix())
 
 	if err != nil {
 		return entity.Record{}, err
 	}
 
-	err = s.UpdateAllRecords(id, updatedTimestamp, updates)
+	err = s.UpdateAllRecords(tx, id, updatedTimestamp, updates)
 	if err != nil {
 		return entity.Record{}, err
 	}
-	
+
+	// Commit the transaction
+	tx.Commit()
 	
 	log.Println("The update to the record with id: ", id, " is successfully completed.")
 	record.UpdatedTimestamp = updatedTimestamp
@@ -211,12 +227,12 @@ type RecordUpdates struct {
 	Updates  map[string]string
 }
 
-func (s *DBRecordService) UpdateAllRecords(id int, updatedTimestamp int64, updates map[string]*string) error {
+func (s *DBRecordService) UpdateAllRecords(tx *sql.Tx, id int, updatedTimestamp int64, updates map[string]*string) error {
 
 	// Get the attributes of the record
 	query := "select id, attributes from record_versions where record_id = ? and actual_update_timestamp > ?"
 	
-	rows, err := s.db.Query(query, id, updatedTimestamp)
+	rows, err := tx.Query(query, id, updatedTimestamp)
 	if err != nil {
 		return err
 	}
@@ -259,7 +275,7 @@ func (s *DBRecordService) UpdateAllRecords(id int, updatedTimestamp int64, updat
 			return err
 		}
 
-		_, err = s.db.Exec(stmt, updatedJsonData, updatedRecord.Id)
+		_, err = tx.Exec(stmt, updatedJsonData, updatedRecord.Id)
 		if err != nil {
 			return err
 		}
