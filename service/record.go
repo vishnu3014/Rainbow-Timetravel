@@ -46,6 +46,7 @@ func NewDBRecordService(dbConn *sql.DB) DBRecordService {
 	return DBRecordService{	db: dbConn }
 }
 
+// Gets the latest version of the record.
 func (s *DBRecordService) GetRecord(ctx context.Context, id int) (entity.Record, error){
 
 	log.Println("Quering the DB to retrieve record with id: ", id)
@@ -58,6 +59,9 @@ func (s *DBRecordService) GetRecord(ctx context.Context, id int) (entity.Record,
 	return s.GetRecordDetails(id, row)
 }
 
+// Gets the version of record that occurs before a timestamp.
+// This version of the record is used as a base to apply updates to the attributes.
+// The updates to the attributes are based on the actual updated time not the reported time.
 func (s *DBRecordService) GetRecordAt(ctx context.Context, id int, queryTimestamp int64) (entity.Record, error){
 
 	log.Println("Quering the DB to retrieve record with id: ", id)
@@ -69,7 +73,7 @@ func (s *DBRecordService) GetRecordAt(ctx context.Context, id int, queryTimestam
 	return s.GetRecordDetails(id, row)
 }
 
-
+// This is the helper method that get the details of a version of the record.
 func (s *DBRecordService) GetRecordDetails(id int, row *sql.Row) (entity.Record, error){
 
 	var attributesStr string
@@ -106,6 +110,8 @@ func (s *DBRecordService) GetRecordDetails(id int, row *sql.Row) (entity.Record,
 
 }
 
+// Create a version of the record. The created_at time stores the reported timestamp where as actual_updated_timestamp
+// stores the actual timestamp of the update.
 func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record) (entity.Record, error) {
 	log.Println("Checking if a record with exists with id: ", record.ID)
 	
@@ -124,6 +130,7 @@ func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record
 	}
 
 	// Insert the row into Record and RecordVersion table in a trasaction.
+	// To facilitate atomic update in both the Record and Record_Version table wrap the operations in a transaction.
 	tx, err := s.db.Begin()
 	if err != nil {
 		return entity.Record{}, ErrRecordAlreadyExists
@@ -165,6 +172,11 @@ func (s *DBRecordService) CreateRecord(ctx context.Context, record entity.Record
 	return recordInDB, nil
 }
 
+// Update a record if the record is present.
+// The V1 of the api endpoint updates the latest version by creating a new record version at the table.
+// The V2 version of the api endpoint creates a new record_version entry. It also applies the update to all
+// record_version attributes that occur after the actual time of update.
+// This ensures that the update is applied to all versions of the record after actual time of endorsement.
 func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updatedTimestamp int64, updates map[string]*string) (entity.Record, error) {
 	log.Println("Updating record with id: ", id, " in the database.")
 
@@ -222,11 +234,13 @@ func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updatedTimes
 	return record.Copy(), nil	
 }
 
+// Helper struct for record updates.
 type RecordUpdates struct {
 	Id       int
 	Updates  map[string]string
 }
 
+// Apply the update to all the record_version after the actual time of the endorsement.
 func (s *DBRecordService) UpdateAllRecords(tx *sql.Tx, id int, updatedTimestamp int64, updates map[string]*string) error {
 
 	// Get the attributes of the record
@@ -285,6 +299,7 @@ func (s *DBRecordService) UpdateAllRecords(tx *sql.Tx, id int, updatedTimestamp 
 	return nil
 }
 
+// Get all the versions of the record.
 func (s *DBRecordService) GetVersions(ctx context.Context, id int) ([]entity.Record, error) {
 
 	var records []entity.Record
@@ -325,6 +340,7 @@ func (s *DBRecordService) GetVersions(ctx context.Context, id int) ([]entity.Rec
 	return records, nil
 }
 
+// Get a specific version of the record.
 func (s *DBRecordService) GetVersionedRecord(ctx context.Context, id int, version int) (entity.Record, error) {
 
 	var record entity.Record

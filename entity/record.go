@@ -1,5 +1,6 @@
 package entity
 
+// The V2 version of the record that records the version of the attributes.
 type Record struct {
 	ID                     int                 `json:id`
 	Version                int                 `json:version`
@@ -8,6 +9,7 @@ type Record struct {
 	Data                   map[string]string   `json:data`
 }
 
+// The V1 version of the record.
 type RecordV1 struct {
 	ID   int
 	Data map[string]string
@@ -30,6 +32,7 @@ func (d *Record) Copy() Record {
 	}			
 }
 
+// Method to covert the V2 version to the V1 version of the record.
 func (d *Record) GetRecordV1() RecordV1 {
 
 	record := RecordV1 {ID: d.ID, Data: d.Data}
