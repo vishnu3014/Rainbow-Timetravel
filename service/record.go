@@ -185,7 +185,10 @@ func (s *DBRecordService) UpdateRecord(ctx context.Context, id int, updatedTimes
 	// the calls chronologically ascending.
 	// For V2 endpoints, the updatedTimestamp represents the actual date of attribute update.
 	record := entity.Record{}
-	record, _ = s.GetRecordAt(ctx, id, updatedTimestamp)
+	record, err := s.GetRecordAt(ctx, id, updatedTimestamp)
+	if err != nil {
+		return entity.Record{}, err
+	}
 
 	for key, value := range updates {
 		if value == nil {
